@@ -27,13 +27,11 @@ Device_Board=${1:-1}
 Boot_Device=${2:-1}
 Rootfs_Config=${3:-2}
 Secure_Mode=${4:-1}
-MT_Mode=${5:1}
 
 echo "Selected board = $Device_Board"
 echo "Boot Device = $Boot_Device"
 echo "Rootfs_Config = $Rootfs_Config"
 echo "Secure Mode = $Secure_Mode"
-echo "MT Mode = $MT_Mode"
 
 # bootdev=emmc
 # bootdev=spi_nand
@@ -96,21 +94,14 @@ uboot_defconfig_combine()
 	# $3 => c/p
 	# $4 => board
 	# $5 => zmem
-	# $6 => mt_mode
 
 	pid=$1
 	dev=$(bootdev_lookup $2)
 	chip=$3
 	board=$4
 	uzmem=$5
-	mt_mode=$6
 
-	if [ -z "$mt_mode" ]; then
-		defconfig=${pid}_${dev}_${board}_defconfig
-	else
-		defconfig=${pid}_${dev}_${board}_${mt_mode}_defconfig
-	fi
-
+	defconfig=${pid}_${dev}_${board}_defconfig
 	echo $defconfig
 }
 
@@ -120,20 +111,12 @@ linux_defconfig_combine()
 	# $2 => bootdev
 	# $3 => c/p
 	# $4 => board
-	# $5 => mt_mode
 
 	pid=$1
 	dev=$(bootdev_lookup $2)
 	chip=$3
 	board=$4
-	mt_mode=$5
-	defconfig=
-
-	if [ -z "$mt_mode" ]; then
-		defconfig=${pid}_${dev}_${board}_defconfig
-	else
-		defconfig=${pid}_${dev}_${board}_${mt_mode}_defconfig
-	fi
+	defconfig=${pid}_${dev}_${board}_defconfig
 
 	echo $defconfig
 }
@@ -302,7 +285,7 @@ rootfs_content=BUSYBOX
 list_config()
 {
 	sel=1
-	if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" ]; then
+	if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" ]; then
 		$ECHO $COLOR_YELLOW"[1] eMMC"$COLOR_ORIGIN
 		$ECHO $COLOR_YELLOW"[2] SD Card"$COLOR_ORIGIN
 		read sel
@@ -593,6 +576,7 @@ $ECHO $COLOR_GREEN"Select boards:"$COLOR_ORIGIN
 $ECHO $COLOR_YELLOW"[1] eCV5546 XINK V2 Board"$COLOR_ORIGIN
 $ECHO $COLOR_YELLOW"[2] eCV5546 XINK Nano Board"$COLOR_ORIGIN
 $ECHO $COLOR_YELLOW"[3] eCV5546 XINK Board"$COLOR_ORIGIN
+$ECHO $COLOR_YELLOW"[4] eCV5546 YX5001"$COLOR_ORIGIN
 
 read board
 board=${board:-$1}
@@ -610,6 +594,10 @@ elif [ "$board" = "3" ]; then
 	ARCH=arm64
 	echo "CHIP=eCV5546" > $BUILD_CONFIG
 	echo "LINUX_DTB=eys3d/ecv5546-xink" >> $BUILD_CONFIG
+elif [ "$board" = "4" ]; then
+	ARCH=arm64
+	echo "CHIP=eCV5546" > $BUILD_CONFIG
+	echo "LINUX_DTB=eys3d/ecv5546-yx5001" >> $BUILD_CONFIG
 else
 	echo "Error: Unknown board!"
 	exit 1
@@ -667,36 +655,22 @@ if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$b
 		sel_board=xink_nano
 	elif [ "$board" = "3" ]; then
 		sel_board=xink
+	elif [ "$board" = "4" ]; then
+		sel_board=yx5001
 	fi
 fi
 
-if [ "$board" = "1" -a "$bootdev" = "sdcard" ]; then
-	$ECHO $COLOR_GREEN"Select MT mode:"$COLOR_ORIGIN
-	$ECHO $COLOR_YELLOW"[1] None"$COLOR_ORIGIN
-	$ECHO $COLOR_YELLOW"[2] eCV5546 MT1"$COLOR_ORIGIN
-	$ECHO $COLOR_YELLOW"[3] eCV5546 MT2"$COLOR_ORIGIN
-	read mt_mode
-	mt_mode=${mt_mode:-$5}
-	echo "selected mt_mode=$mt_mode"
 
-	if [ "$mt_mode" = "2" ]; then
-		echo "MT_FLAG=-DeCV5546_MT1" >> $BUILD_CONFIG
-		sel_mt_mode=mt1
-	elif [ "$mt_mode" = "3" ]; then
-		echo "MT_FLAG=-DeCV5546_MT2" >> $BUILD_CONFIG
-		sel_mt_mode=mt2
-	fi
-fi
 
 if [ "$set_config_directly" = "1" ]; then
 	xboot_bootdev=$bootdev
 	if [ "$bootdev" = "sdcard" -o "$bootdev" = "usb" ]; then
 		xboot_bootdev="emmc"
 	fi
-	echo "selected mt_mode=$sel_mt_mode"
+
 	XBOOT_CONFIG=$(xboot_defconfig_combine $chip_name $xboot_bootdev $sel_chip $sel_board $zmem)
-	UBOOT_CONFIG=$(uboot_defconfig_combine $chip_name $bootdev $sel_chip $sel_board $zmem $sel_mt_mode)
-	KERNEL_CONFIG=$(linux_defconfig_combine $chip_name $bootdev $sel_chip $sel_board $sel_mt_mode)
+	UBOOT_CONFIG=$(uboot_defconfig_combine $chip_name $bootdev $sel_chip $sel_board $zmem)
+	KERNEL_CONFIG=$(linux_defconfig_combine $chip_name $bootdev $sel_chip $sel_board)
 fi
 
 echo "ROOTFS_CONTENT=${rootfs_content}" >> $BUILD_CONFIG
@@ -710,5 +684,12 @@ fi
 echo "ARCH=$ARCH" >> $BUILD_CONFIG
 
 echo "bootdev "$bootdev
+
+# Add git info
+GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "no-tag")
+GIT_COMMIT=$(git rev-parse --short=8 HEAD)
+
+echo "GIT_TAG=${GIT_TAG}" >> $BUILD_CONFIG
+echo "GIT_COMMIT=${GIT_COMMIT}" >> $BUILD_CONFIG
 
 c_chip_config $bootdev

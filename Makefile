@@ -108,6 +108,25 @@ SECURE_PATH ?=
 
 OVERLAYFS ?= 0
 
+#Customized version
+CHIP := $(shell grep ^CHIP $(CONFIG_ROOT) | cut -d'=' -f2)
+export CHIP
+
+LINUX_DTB := $(shell grep ^LINUX_DTB $(CONFIG_ROOT) | cut -d'=' -f2)
+export LINUX_DTB
+
+BOOT_FROM := $(shell grep ^BOOT_FROM $(CONFIG_ROOT) | cut -d'=' -f2)
+export BOOT_FROM
+
+
+ROOTFS_CONTENT := $(shell grep ^ROOTFS_CONTENT $(CONFIG_ROOT) | cut -d'=' -f2)
+export ROOTFS_CONTENT
+
+GIT_TAG := $(shell grep ^GIT_TAG $(CONFIG_ROOT) | cut -d'=' -f2)
+export GIT_TAG
+
+GIT_COMMIT := $(shell grep ^GIT_COMMIT $(CONFIG_ROOT) | cut -d'=' -f2)
+export GIT_COMMIT
 .PHONY: all buildroot xboot uboot kenel rom clean distclean config init check rootfs info firmware freertos toolchain
 .PHONY: dtb spirom isp tool_isp kconfig uconfig xconfig bconfig load_bconfig yocto
 
@@ -283,18 +302,13 @@ hconfig:
 
 dtb: check
 	$(eval LINUX_DTB=$(shell cat $(CONFIG_ROOT) | grep 'LINUX_DTB=' | sed 's/LINUX_DTB=//g').dtb)
-	$(eval MT_FLAG=$(shell cat $(CONFIG_ROOT) | grep 'MT_FLAG=' | sed 's/MT_FLAG=//g'))
-
-	echo "dtc_cpp_flags $(MT_FLAG)"
 
 	@if [ $(IS_ASSIGN_DTB) -eq 1 ]; then \
 		DTC_FLAGS=-Wno-graph_child_address \
-		dtc_cpp_flags=$(MT_FLAG) \
 		$(MAKE_ARCH) -C $(LINUX_PATH) $(HW_DTB) CROSS_COMPILE=$(CROSS_COMPILE_FOR_LINUX) W=1; \
 		$(LN) -fs arch/$(ARCH)/boot/dts/$(HW_DTB) $(LINUX_PATH)/dtb; \
 	else \
 		DTC_FLAGS=-Wno-graph_child_address \
-		dtc_cpp_flags=$(MT_FLAG) \
 		$(MAKE_ARCH) -C $(LINUX_PATH) $(LINUX_DTB) CROSS_COMPILE=$(CROSS_COMPILE_FOR_LINUX) W=1; \
 		if [ $$? -ne 0 ]; then \
 			exit 1; \
