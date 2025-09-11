@@ -136,7 +136,8 @@
 
 #define NAND_UBI_VID_HEAD_OFFSET                    (NAND_PAGE_SIZE)
 
-#define ROOTFS_SEG_LIMIT                            0xf8000000UL
+//#define ROOTFS_SEG_LIMIT                            0xf8000000UL //3.875 GB
+#define ROOTFS_SEG_LIMIT 							0xB8000000UL   //2.875 GB
 
 typedef unsigned char u08;
 typedef uint32_t      u32;
@@ -216,6 +217,10 @@ struct isp_info_s isp_info;
 #define BYTE2BLOCK(x)                   ((x + 511) >> 9)    /* 512 bytes/sector */
 
 char last_partition[32];
+
+//+ bypass data partition
+int preserve_data = 0;
+//-bypass data partition
 
 void dump_isp_info(void)
 {
@@ -454,6 +459,27 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 		fprintf(fd, "echo \"%s\"\n", cmd);
 		fprintf(fd, "%s\n\n", cmd);
 	} else if (nand_or_emmc == IDX_EMMC) {
+
+		//+bypass data partition
+		if (preserve_data) {
+			fprintf(fd, "mmc dev 0 && mmc rescan\n\n");
+			fprintf(fd, "mmc part\n");
+
+			fprintf(fd, "echo Check if data partition exists\n");
+			fprintf(fd, "setenv data_exists 0\n");
+
+			fprintf(fd, "echo Check data partition\n");
+			fprintf(fd, "part start mmc 0 data data_start\n");
+			fprintf(fd, "if test $? -eq 0; then\n");
+			fprintf(fd, "    echo \"Found existing data partition at LBA ${data_start}\"\n");
+			fprintf(fd, "    setenv data_exists 1\n");
+			fprintf(fd, "else\n");
+			fprintf(fd, "    echo \"data partition not found or invalid\"\n");
+			fprintf(fd, "    setenv data_exists 0\n");
+			fprintf(fd, "fi\n\n");
+		}
+		//-bypass data partition
+
 		fprintf(fd, "echo Initialize eMMC ...\n");
 		fprintf(fd, "mmc dev 0 && mmc rescan\n\n");
 #ifndef XBOOT1_IN_EMMC_BOOTPART
@@ -705,6 +731,47 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 				int ispboot_num = 0;
 				u64 partition_programmed = 0;
 
+				//+bypass data partition
+
+				if (preserve_data && strcmp(basename(isp_info.file_header.partition_info[i].file_name), "data") == 0) {
+					fprintf(fd, "if test ${data_exists} -eq 1; then\n");
+					fprintf(fd, "    echo \"data partition already exists, skipping update...\"\n");
+					fprintf(fd, "else\n");
+
+					file_size = isp_info.file_header.partition_info[i].file_size;
+
+					size_programmed = 0;
+					if (file_size == 0) {
+						fprintf(fd, "mw.b $isp_ram_addr 0xFF 0x0800\n");     // fill 0xFF for 2KB.
+						fprintf(fd, "mmc write $isp_ram_addr 0x%x 0x%x\n",
+							(u32)(isp_info.file_header.partition_info[i].emmc_partition_start + BYTE2BLOCK(size_programmed)),
+							BYTE2BLOCK(0x0800));
+					}
+
+					while (file_size) {
+						size = (file_size > MAX_MEM_SIZE_FOR_ISP) ? MAX_MEM_SIZE_FOR_ISP : file_size;
+
+						if (ispboot_num == 0) {
+							fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /%s 0x%lx 0x%lx\n", basename(isp_info.file_name_pack_image), size,
+								(size_programmed + (isp_info.file_header.partition_info[i].file_offset)));
+						} else {
+							fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /ISPBOOT%d.BIN 0x%lx 0x%lx\n", ispboot_num, size, partition_programmed);
+						}
+						#if !defined(REDUCE_MESSAGE)
+						fprintf(fd, "md.b $isp_ram_addr 0x0100\n");
+						#endif
+
+						fprintf(fd, "mmc write $isp_ram_addr 0x%x 0x%x\n",
+							(u32)(isp_info.file_header.partition_info[i].emmc_partition_start + BYTE2BLOCK(size_programmed)), (u32)BYTE2BLOCK(size));
+
+						size_programmed += size;
+						file_size       -= size;
+					}
+					fprintf(fd, "fi\n");
+					continue;
+				}
+				//-bypass data partition
+
 				file_size = isp_info.file_header.partition_info[i].file_size;
 				if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) {
 					if (file_size > ROOTFS_SEG_LIMIT) {
@@ -789,6 +856,12 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 			// nand of ubifs, no read cmd to read part of imgdata ,for ubifs nand ,not do verify.
 			continue;
 		}
+
+		//+bypass data partition
+		if (preserve_data && nand_or_emmc == IDX_EMMC && strcmp(basename(isp_info.file_header.partition_info[i].file_name), "data") == 0) {
+			continue;
+		}
+		//-bypass data partition
 
 		file_size = isp_info.file_header.partition_info[i].file_size;
 		flag_first = 1;     // first MAX_MEM_SIZE_FOR_ISP bytes of the verified file.
@@ -948,6 +1021,12 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 	printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n");
 #endif
 
+	//+bypass data partition
+	if (preserve_data) {
+		printf("%s\n", cmd);
+	}
+	//-bypass data partition
+
 	sprintf(cmd, "mkimage -A arm -O linux -T script -C none -a 0 -e 0 -n \"ISP script for %s\" -d %s %s %s", isp_info.file_name_pack_image, tmp_file, file_name_isp_script,
 		MESSAGE_OUT);
 	// printf("%s\n", cmd);
@@ -988,7 +1067,22 @@ int pack_image(int argc, char **argv)
 
 	idx_partition_info = 0;
 	offset_of_last_file = sizeof(isp_info.file_header);
+
+	//bypass data partition
 	for (i = 0; i < argc; i++) {
+		if (strcmp(argv[i], "--preserve-data") == 0) {
+			preserve_data = 1;
+			for (int j = i; j < argc - 1; j++) {
+				argv[j] = argv[j + 1];
+			}
+			argc--;
+			i--;
+		}
+	}
+	//bypass data partition
+
+	for (i = 0; i < argc; i++) {
+
 		if (i <= ARGC_PACK_IMAGE_SUBCMD) {  // ARGC_PACK_IMAGE_MAINCMD, ARGC_PACK_IMAGE_SUBCMD
 			continue;
 		} else if (i == ARGC_PACK_IMAGE_OUTPUT) {
@@ -1149,6 +1243,15 @@ int pack_image(int argc, char **argv)
 					if (i != IDX_PARTITION_UBOOT2)
 						isp_info.file_header.partition_info[i].flags |= FLAGS_NOT_ALLOWED_TO_UPDATE;
 				} else {
+
+					//+bypass data partition
+					if (preserve_data &&
+						strncmp(isp_info.file_header.partition_info[i].file_name, "data", 4) == 0) {
+						isp_info.file_header.partition_info[i].flags |= FLAGS_NOT_ALLOWED_TO_UPDATE;
+						printf("Marking data partition as preserved (not allowed to update)\n");
+					}
+					//-bypass data partition
+
 					next_partition_start_address += isp_info.file_header.partition_info[i].partition_size;
 				}
 			} else {
@@ -1161,6 +1264,11 @@ int pack_image(int argc, char **argv)
 #if !defined(MESSAGE_OUT_NONE)
 	dump_isp_info();
 #endif
+	//+bypass data partition
+	if (preserve_data) {
+		dump_isp_info();
+	}
+	//-bypass data partition
 
 	gen_script_main(file_name_isp_script[IDX_NAND], IDX_NAND);
 	if (stat(file_name_isp_script[IDX_NAND], &file_stat) == 0) {
