@@ -136,8 +136,10 @@
 
 #define NAND_UBI_VID_HEAD_OFFSET                    (NAND_PAGE_SIZE)
 
-//#define ROOTFS_SEG_LIMIT                            0xf8000000UL //3.875 GB
-#define ROOTFS_SEG_LIMIT 							0xB8000000UL   //2.875 GB
+//#define ROOTFS_SEG_LIMIT                          0xf8000000UL //3.875 GB
+//#define ROOTFS_SEG_LIMIT 							0x73333000UL //1.8 GB
+
+#define ROOTFS_SEG_LIMIT                            (preserve_data ? 0x73333000UL : 0xf8000000UL)   //preserve_userdata=0: 3.875 GB, =1: 1.8 GB
 
 typedef unsigned char u08;
 typedef uint32_t      u32;
@@ -459,7 +461,9 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 		fprintf(fd, "echo \"%s\"\n", cmd);
 		fprintf(fd, "%s\n\n", cmd);
 	} else if (nand_or_emmc == IDX_EMMC) {
-
+		//+A/B_partition
+		printf("*******>>>> start gen script \n");
+		//-A/B_partition
 		//+bypass data partition
 		if (preserve_data) {
 			fprintf(fd, "mmc dev 0 && mmc rescan\n\n");
@@ -513,16 +517,24 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 #endif
 			fprintf(fd, "name=%s,", basename(isp_info.file_header.partition_info[i].file_name));
 			fprintf(fd, "uuid=${uuid_gpt_%s},", basename(isp_info.file_header.partition_info[i].file_name));
-
-			if (strcmp(isp_info.file_header.partition_info[i].file_name, last_partition) == 0) {
-				// The emmc rootfs partition is set to EXT2 fs, and the partition size is all remaining space.
-				fprintf(fd, "size=-;");
-				break;
-			} else {
+			//+A/B_partition
+			if (preserve_data) {
 				is_1MB_aligned = ((isp_info.file_header.partition_info[i].partition_size & ((1 << 20) - 1)) == 0) ? 1 : 0;
 				fprintf(fd, "size=%u%s;", (is_1MB_aligned ? (u32)(isp_info.file_header.partition_info[i].partition_size >> 20) :
 					(u32)(isp_info.file_header.partition_info[i].partition_size >> 10)),(is_1MB_aligned ? "MiB" : "KiB"));
+			} else {
+				if (strcmp(isp_info.file_header.partition_info[i].file_name, last_partition) == 0 
+						&& strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) {
+					// The emmc rootfs partition is set to EXT2 fs, and the partition size is all remaining space.
+					fprintf(fd, "size=-;");
+					break;
+				} else  {
+					is_1MB_aligned = ((isp_info.file_header.partition_info[i].partition_size & ((1 << 20) - 1)) == 0) ? 1 : 0;
+					fprintf(fd, "size=%u%s;", (is_1MB_aligned ? (u32)(isp_info.file_header.partition_info[i].partition_size >> 20) :
+						(u32)(isp_info.file_header.partition_info[i].partition_size >> 10)),(is_1MB_aligned ? "MiB" : "KiB"));
+				}
 			}
+			//-A/B_partition
 		}
 		fprintf(fd, "\"\n\n");
 		//fprintf(fd, "name=userdata,size=-,uuid=${uuid_gpt_userdata}\"\n\n");
@@ -727,7 +739,13 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 					file_size       -= size;
 				}
 			} else if (nand_or_emmc == IDX_EMMC) {
+				//+A/B_partition
+				printf("*******>>>> start gen script file name: %s\n", basename(isp_info.file_header.partition_info[i].file_name));
+				//-A/B_partition
 				int rootfs_gt_4GB = 0;
+				//+A/B_partition
+				int rootfsB_gt_4GB = 0;
+				//-A/B_partition
 				int ispboot_num = 0;
 				u64 partition_programmed = 0;
 
@@ -773,11 +791,28 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 				//-bypass data partition
 
 				file_size = isp_info.file_header.partition_info[i].file_size;
-				if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) {
-					if (file_size > ROOTFS_SEG_LIMIT) {
-						rootfs_gt_4GB = 1;
+				//+A/B_partition
+				if (preserve_data) {
+					if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfsA") == 0) {
+						if (file_size > ROOTFS_SEG_LIMIT) {
+							rootfs_gt_4GB = 1;
+						}
+					}
+
+					if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfsB") == 0) {
+						if (file_size > ROOTFS_SEG_LIMIT) {
+							rootfsB_gt_4GB = 1;
+							ispboot_num = 3;
+						}
+					}
+				} else {
+					if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) {
+						if (file_size > ROOTFS_SEG_LIMIT) {
+							rootfs_gt_4GB = 1;
+						}
 					}
 				}
+				//-A/B_partition
 
 				size_programmed = 0;
 				if (file_size == 0) {
@@ -795,15 +830,39 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 					//size = (file_size > 0x2000000UL) ? 0x2000000UL : file_size;
 					//size = (file_size > 0x1000000UL) ? 0x1000000UL : file_size;
 					//size = (file_size > 0x800000UL) ? 0x800000UL : file_size;
-					if (rootfs_gt_4GB && ((partition_programmed + size) > ROOTFS_SEG_LIMIT)) {
-						size = ROOTFS_SEG_LIMIT - partition_programmed;
-					}
-					if (ispboot_num == 0) {
-						fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /%s 0x%lx 0x%lx\n", basename(isp_info.file_name_pack_image), size,
-							(size_programmed + (isp_info.file_header.partition_info[i].file_offset)));
+					//+A/B_partition
+					if (preserve_data) {
+						if ((rootfs_gt_4GB || rootfsB_gt_4GB) && ((partition_programmed + size) > ROOTFS_SEG_LIMIT)) {
+							size = ROOTFS_SEG_LIMIT - partition_programmed;
+						}
+						if (ispboot_num == 0 || (rootfs_gt_4GB && ispboot_num == 0) || (rootfsB_gt_4GB && ispboot_num == 3)) {
+							fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /%s 0x%lx 0x%lx\n", basename(isp_info.file_name_pack_image), size,
+								(size_programmed + (isp_info.file_header.partition_info[i].file_offset)));
+							printf("*******>>>> start gen script - file name : %s, ispboot_num: %d\n", basename(isp_info.file_name_pack_image), ispboot_num);
+						
+							printf("DEBUG: Reading from main file - size=%lu, offset=0x%lx (base_offset=0x%x, size_programmed=%lu)\n", 
+								size, size_programmed + (isp_info.file_header.partition_info[i].file_offset), isp_info.file_header.partition_info[i].file_offset, size_programmed);
+
+						} else {
+							fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /ISPBOOT%d.BIN 0x%lx 0x%lx\n", ispboot_num, size, partition_programmed);
+							printf("*******>>>> start gen script - file name : /ISPBOOT%d.BIN\n", ispboot_num);
+
+							printf("DEBUG: Reading from ISPBOOT%d.BIN - size=%lu, offset=0x%lx\n", 
+								ispboot_num, size, partition_programmed);
+
+						}
 					} else {
-						fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /ISPBOOT%d.BIN 0x%lx 0x%lx\n", ispboot_num, size, partition_programmed);
+						if (rootfs_gt_4GB && ((partition_programmed + size) > ROOTFS_SEG_LIMIT)) {
+							size = ROOTFS_SEG_LIMIT - partition_programmed;
+						}
+						if (ispboot_num == 0) {
+							fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /%s 0x%lx 0x%lx\n", basename(isp_info.file_name_pack_image), size,
+								(size_programmed + (isp_info.file_header.partition_info[i].file_offset)));
+						} else {
+							fprintf(fd, "fatload $isp_if $isp_dev $isp_ram_addr /ISPBOOT%d.BIN 0x%lx 0x%lx\n", ispboot_num, size, partition_programmed);
+						}
 					}
+					//-A/B_partition
 #if !defined(REDUCE_MESSAGE)
 					fprintf(fd, "md.b $isp_ram_addr 0x0100\n");
 #endif
@@ -814,18 +873,34 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 					// fprintf(fd, "ispsp progress 0x%lx 0x00\n", size);
 					size_programmed += size;
 					file_size       -= size;
-
-					if (rootfs_gt_4GB) {
-						partition_programmed += size;
-						if (partition_programmed >= ROOTFS_SEG_LIMIT) {
-							partition_programmed = 0;
-							ispboot_num++;
+					//+A/B_partition
+					if (preserve_data) {
+						if (rootfs_gt_4GB || rootfsB_gt_4GB) {
+							partition_programmed += size;
+							if (partition_programmed >= ROOTFS_SEG_LIMIT) {
+								partition_programmed = 0;
+								ispboot_num++;
+							}
+						}
+					} else {
+						if (rootfs_gt_4GB) {
+							partition_programmed += size;
+							if (partition_programmed >= ROOTFS_SEG_LIMIT) {
+								partition_programmed = 0;
+								ispboot_num++;
+							}
 						}
 					}
+					//-A/B_partition
 				}
 			}
 		}
 	}
+	//+A/B_partition
+	if (nand_or_emmc == IDX_EMMC) {
+		printf("*******>>>> start gen script done\n");
+	}
+	//-A/B_partition
 	if ((isp_info.file_header.flags & FLAGS_MTD_ONLY) && (nand_or_emmc == IDX_NAND)) {
 #if !defined(REDUCE_MESSAGE)
 		//for nand and emmc ,the rootfs is the last partition,no overlay and userdata partition
@@ -869,7 +944,11 @@ int gen_script_main(char *file_name_isp_script, int nand_or_emmc)
 
 		fprintf(fd, "echo\n");
 		fprintf(fd, "echo verifying %s ...\n", basename(isp_info.file_header.partition_info[i].file_name));
-
+		//+A/B_partition
+		if (nand_or_emmc == IDX_EMMC) {
+			printf("verifying file name: %s , size: %lu\n", basename(isp_info.file_header.partition_info[i].file_name), file_size);
+		}
+		//-A/B_partition
 
 #if 0   // test, it would cause BCH error.
 		char t[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -1052,6 +1131,9 @@ int pack_image(int argc, char **argv)
 	int idx_partition_info;
 	long tmp_u64;
 	int rootfs_gt_4GB = 0;
+	//+A/B_partition
+	int rootfsB_gt_4GB = 0;
+	//-A/B_partition
 
 	if (sizeof(struct partition_info_s) != SIZE_PARTITION_INFO_S) {
 		printf("Expect sizeof(partition_info) == %d\n", SIZE_PARTITION_INFO_S);
@@ -1206,11 +1288,26 @@ int pack_image(int argc, char **argv)
 				tmp_u64 = file_stat.st_size;
 				tmp_u64 = (tmp_u64 + 0x3ff) & 0xfffffffffffffc00UL;     // Align to 1k
 				// printf("File size of %s is %lu, extend it to %lu\n", isp_info.full_file_name[i], file_stat.st_size, tmp_u64);
-				if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) {
-					if (tmp_u64 > ROOTFS_SEG_LIMIT) {
-						rootfs_gt_4GB = 1;
+				//+A/B_partition
+				if (preserve_data) {
+					if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfsA") == 0) {
+						if (tmp_u64 > ROOTFS_SEG_LIMIT) {
+							rootfs_gt_4GB = 1;
+						}
+					}
+					if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfsB") == 0) {
+						if (tmp_u64 > ROOTFS_SEG_LIMIT) {
+							rootfsB_gt_4GB = 1;
+						}
+					}
+				} else {
+					if (strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) {
+						if (tmp_u64 > ROOTFS_SEG_LIMIT) {
+							rootfs_gt_4GB = 1;
+						}
 					}
 				}
+				//+A/B_partition
 				truncate(isp_info.full_file_name[i], tmp_u64);
 				isp_info.file_header.partition_info[i].file_size = tmp_u64;
 
@@ -1223,11 +1320,23 @@ int pack_image(int argc, char **argv)
 				}
 
 				isp_info.file_header.partition_info[i].file_offset = offset_of_last_file;
-				if (rootfs_gt_4GB) {
-					offset_of_last_file += ROOTFS_SEG_LIMIT;
+				//+A/B_partition
+				if (preserve_data) {
+					if (rootfs_gt_4GB || rootfsB_gt_4GB) {
+						offset_of_last_file += ROOTFS_SEG_LIMIT;
+					} else {
+						offset_of_last_file += tmp_u64;
+					}
 				} else {
-					offset_of_last_file += tmp_u64;
+					if (rootfs_gt_4GB) {
+						offset_of_last_file += ROOTFS_SEG_LIMIT;
+					} else {
+						offset_of_last_file += tmp_u64;
+					}
 				}
+				
+				printf("*******>>>> start pack_image , file_name :%s\n", isp_info.file_header.partition_info[i].file_name);
+				//-A/B_partition
 				md5sum(isp_info.full_file_name[i], 0, 0, isp_info.file_header.partition_info[i].md5sum);
 
 				isp_info.file_header.partition_info[i].partition_start_addr = next_partition_start_address;
@@ -1254,6 +1363,9 @@ int pack_image(int argc, char **argv)
 
 					next_partition_start_address += isp_info.file_header.partition_info[i].partition_size;
 				}
+				//+A/B_partition
+				printf("*******>>>> start pack_image , file_name :%s done\n", isp_info.file_header.partition_info[i].file_name);
+				//-A/B_partition
 			} else {
 				printf("Error for '%s': %s: %d\n", isp_info.full_file_name[i],__FILE__, __LINE__);  // isp_info.full_file_name[i] doesn't exist or can't be created
 				exit(-1);
@@ -1269,7 +1381,9 @@ int pack_image(int argc, char **argv)
 		dump_isp_info();
 	}
 	//-bypass data partition
-
+	//+A/B_partition
+	printf("*******>>>> start pack_image gen_script_main for IDX_NAND\n");
+	//-A/B_partition
 	gen_script_main(file_name_isp_script[IDX_NAND], IDX_NAND);
 	if (stat(file_name_isp_script[IDX_NAND], &file_stat) == 0) {
 		tmp_u32 = (u32)(file_stat.st_size);
@@ -1283,8 +1397,13 @@ int pack_image(int argc, char **argv)
 		printf("Error for '%s': %s: %d\n", file_name_isp_script[IDX_NAND], __FILE__, __LINE__);
 		exit(-1);
 	}
-
+	//+A/B_partition
+	printf("*******>>>> start pack_image gen_script_main for IDX_NAND done\n");
+	//-A/B_partition
 #ifdef SUPPORT_MAIN_STORAGE_IS_EMMC
+    //+A/B_partition
+	printf("*******>>>> start pack_image gen_script_main for IDX_EMMC\n");
+	//-A/B_partition
 	gen_script_main(file_name_isp_script[IDX_EMMC], IDX_EMMC);
 	if (stat(file_name_isp_script[IDX_EMMC], &file_stat) == 0) {
 		tmp_u32 = (u32)(file_stat.st_size);
@@ -1298,46 +1417,101 @@ int pack_image(int argc, char **argv)
 		printf("Error for '%s': %s: %d\n", file_name_isp_script[IDX_EMMC], __FILE__, __LINE__);
 		exit(-1);
 	}
+	//+A/B_partition
+	printf("*******>>>> start pack_image gen_script_main for IDX_EMMC done\n");
+	//-A/B_partition
 #endif  /* SUPPORT_MAIN_STORAGE_IS_EMMC */
 
 	/* concatenate all input files */
-	for (i = 0; i < NUM_OF_PARTITION; i++) {
-		if (isp_info.file_header.partition_info[i].partition_size != 0) {
-			if ((strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) && rootfs_gt_4GB) {
-				sprintf(cmd, "head -c %lu %s >> %s", ROOTFS_SEG_LIMIT, isp_info.full_file_name[i], tmp_file);
-				// printf("%s\n", cmd);
-				system(cmd);
+	//+A/B_partition
+	if (preserve_data) {
+		u32 global_ispboot_n = 1;
 
-				char ispbooot_fn[SIZE_FULL_FILE_NAME];
-				char ispbootx_fn[SIZE_FULL_FILE_NAME];
-				strncpy(ispbooot_fn, isp_info.file_name_pack_image, sizeof(ispbooot_fn));
+		for (i = 0; i < NUM_OF_PARTITION; i++) {
+			if (isp_info.file_header.partition_info[i].partition_size != 0) {
 
-				tmp_u32 = isp_info.file_header.partition_info[i].file_size / 0x400U;    // Convert 1k
-				tmp_u32 -= (ROOTFS_SEG_LIMIT/0x400U);
-				u32 n = 1;
-				u32 sk = (ROOTFS_SEG_LIMIT/0x400U);
-				u32 sz;
-				while (1) {
-					sz = (tmp_u32 > (ROOTFS_SEG_LIMIT/0x400U)) ? (ROOTFS_SEG_LIMIT/0x400U) : tmp_u32;
+				if (((strcmp(isp_info.file_header.partition_info[i].file_name, "rootfsA") == 0) && rootfs_gt_4GB ) ||
+					((strcmp(isp_info.file_header.partition_info[i].file_name, "rootfsB") == 0) && rootfsB_gt_4GB)) {
+				
+					sprintf(cmd, "head -c %lu %s >> %s", ROOTFS_SEG_LIMIT, isp_info.full_file_name[i], tmp_file);
+					printf("Writing first %lu to main file: %s\n", ROOTFS_SEG_LIMIT, cmd);
+					system(cmd);
 
-					snprintf(ispbootx_fn, sizeof(ispbootx_fn), "%s/ISPBOOT%d.BIN", dirname(ispbooot_fn), n);
-					snprintf(cmd, sizeof(cmd), "dd if=%s of=%s bs=1024 skip=%u count=%u", isp_info.full_file_name[i], ispbootx_fn, sk, sz);
+					char ispbooot_fn[SIZE_FULL_FILE_NAME];
+					char ispbootx_fn[SIZE_FULL_FILE_NAME];
+					strncpy(ispbooot_fn, isp_info.file_name_pack_image, sizeof(ispbooot_fn));
+
+					tmp_u32 = isp_info.file_header.partition_info[i].file_size / 0x400U;    // Convert to KB
+					tmp_u32 -= (ROOTFS_SEG_LIMIT / 0x400U);
+				
+					u32 sk = (ROOTFS_SEG_LIMIT / 0x400U);
+					u32 sz;
+
+					while (tmp_u32 > 0) {
+						sz = (tmp_u32 > (ROOTFS_SEG_LIMIT / 0x400U)) ? (ROOTFS_SEG_LIMIT / 0x400U) : tmp_u32;
+
+						snprintf(ispbootx_fn, sizeof(ispbootx_fn), "%s/ISPBOOT%d.BIN", dirname(ispbooot_fn), global_ispboot_n);
+					
+						snprintf(cmd, sizeof(cmd), "dd if=%s of=%s bs=1024 skip=%u count=%u", 
+								isp_info.full_file_name[i], ispbootx_fn, sk, sz);
+					
+						printf("Creating %s: %s\n", ispbootx_fn, cmd);
+						system(cmd);
+
+						tmp_u32 -= sz;
+						sk += sz;
+						global_ispboot_n++;
+					
+						if (tmp_u32 == 0) break;
+					}
+				
+				} else {
+					sprintf(cmd, "cat %s >> %s", isp_info.full_file_name[i], tmp_file);
+					printf("Normal partition: %s\n", cmd);
+					system(cmd);
+				}
+			}
+		}
+	} else {
+		for (i = 0; i < NUM_OF_PARTITION; i++) {
+			if (isp_info.file_header.partition_info[i].partition_size != 0) {
+				if ((strcmp(isp_info.file_header.partition_info[i].file_name, "rootfs") == 0) && rootfs_gt_4GB) {
+					sprintf(cmd, "head -c %lu %s >> %s", ROOTFS_SEG_LIMIT, isp_info.full_file_name[i], tmp_file);
 					// printf("%s\n", cmd);
 					system(cmd);
 
-					if (tmp_u32 <= (ROOTFS_SEG_LIMIT/0x400U)) break;
+					char ispbooot_fn[SIZE_FULL_FILE_NAME];
+					char ispbootx_fn[SIZE_FULL_FILE_NAME];
+					strncpy(ispbooot_fn, isp_info.file_name_pack_image, sizeof(ispbooot_fn));
 
+					tmp_u32 = isp_info.file_header.partition_info[i].file_size / 0x400U;    // Convert 1k
 					tmp_u32 -= (ROOTFS_SEG_LIMIT/0x400U);
-					sk += (ROOTFS_SEG_LIMIT/0x400U);
-					n++;
+					u32 n = 1;
+					u32 sk = (ROOTFS_SEG_LIMIT/0x400U);
+					u32 sz;
+					while (1) {
+						sz = (tmp_u32 > (ROOTFS_SEG_LIMIT/0x400U)) ? (ROOTFS_SEG_LIMIT/0x400U) : tmp_u32;
+
+						snprintf(ispbootx_fn, sizeof(ispbootx_fn), "%s/ISPBOOT%d.BIN", dirname(ispbooot_fn), n);
+						snprintf(cmd, sizeof(cmd), "dd if=%s of=%s bs=1024 skip=%u count=%u", isp_info.full_file_name[i], ispbootx_fn, sk, sz);
+						// printf("%s\n", cmd);
+						system(cmd);
+
+						if (tmp_u32 <= (ROOTFS_SEG_LIMIT/0x400U)) break;
+
+						tmp_u32 -= (ROOTFS_SEG_LIMIT/0x400U);
+						sk += (ROOTFS_SEG_LIMIT/0x400U);
+						n++;
+					}
+				} else {
+					sprintf(cmd, "cat %s >> %s", isp_info.full_file_name[i], tmp_file);
+					// printf("%s\n", cmd);
+					system(cmd);
 				}
-			} else {
-				sprintf(cmd, "cat %s >> %s", isp_info.full_file_name[i], tmp_file);
-				// printf("%s\n", cmd);
-				system(cmd);
 			}
 		}
 	}
+	//-A/B_partition
 
 	/* concatenate ISP script file */
 	sprintf(cmd, "cat %s >> %s", file_name_isp_script[IDX_NAND], tmp_file);

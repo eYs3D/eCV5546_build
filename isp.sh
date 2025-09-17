@@ -4,10 +4,23 @@ TOP=../
 
 export PATH=$PATH:$TOP/build/tools/isp/
 
+# Read the MENDER_OTA_INTEGRATION config from U-Boot's defconfig
+DEFCONFIG_FILE="${TOP}boot/uboot/.config"
+USE_AB_PARTITION=false
+if grep -q "^CONFIG_MENDER_OTA_INTEGRATION=y" "$DEFCONFIG_FILE"; then
+	echo "!!!! Mender OTA integration is enabled - using A/B partition layout !!!! "
+	USE_AB_PARTITION=true
+else
+	echo "!!!! Mender OTA integration is disable - using single partition layout !!!!"
+fi
+
 X=xboot.img
 U=u-boot.img
 K=uImage
 ROOTFS=rootfs.img
+if [ "$USE_AB_PARTITION" = "true"  ]; then
+	ROOTFSB=rootfs.img
+fi
 OVERLAY=
 
 if [ "$OVERLAYFS" = "1" ]; then
@@ -22,12 +35,40 @@ if [ "$OVERLAYFS" = "1" ]; then
 	# OVERLAY="$OVERLAY none"
 else
 	if [ "$1" != "SDCARD" ]; then
-		cp $ROOTFS rootfs
+		if [ "$USE_AB_PARTITION" = "true"  ]; then
+			cp $ROOTFS rootfsA
+			cp $ROOTFSB rootfsB
+		else
+			cp $ROOTFS rootfs
+		fi
 	fi
 fi
 D=dtb
 F=fip.img
 
+if [ "$USE_AB_PARTITION" = "true"  ]; then
+	# 20MB:0x1400000 64MB:0x04000000 128MB:0x08000000 100MB:0x06400000 200MB:0xC800000 1GB:0x40000000
+	DATA_IMG=data.img
+	DATA_SIZE=128M
+	DATA_PARTITION=data
+
+	if [ "$1" = "EMMC" ]; then
+		if [ ! -f $DATA_IMG ]; then
+			echo "Creating new data image with file system..."
+			if ! fallocate -l $DATA_SIZE $DATA_IMG; then
+				echo "Error: Failed to create data image"
+				exit 1
+			fi
+			if ! mkfs.ext4 -L $DATA_PARTITION $DATA_IMG; then
+				echo "Error: Failed to format data partition"
+				rm -f $DATA_IMG
+				exit 1
+			fi
+			echo "Data partition created and formatted successfully"
+		fi
+		cp $DATA_IMG $DATA_PARTITION
+	fi
+fi
 
 # Partition name = file name
 cp $X xboot0
@@ -84,6 +125,14 @@ if [ "$1" = "EMMC" ]; then
 		EMMC_SIZE=0x100000000	# default size = 4GiB
 	fi
 	EMMC_SIZE=$(($EMMC_SIZE-0x2000000))
+
+	PRESERVE_FLAGS="--preserve-data"
+	#PRESERVE_FLAGS=""
+
+	ROOTFS_SIZE=$((14*1024*1024*1024))      # 14GB
+
+    DATA_SIZE=0x08000000
+
 	if [ "$OVERLAYFS" = "1" ]; then
 		isp pack_image ISPBOOOT.BIN \
 			xboot0 uboot0 \
@@ -98,19 +147,38 @@ if [ "$1" = "EMMC" ]; then
 			kernel_bkup 0x2000000 \
 			rootfs  none \
 			$OVERLAY $EMMC_SIZE
-	else	
-		isp pack_image ISPBOOOT.BIN \
-			xboot0 uboot0 \
-			xboot1 0x100000 \
-			uboot1 0x100000 \
-			uboot2 0x100000 \
-			fip 0x100000 \
-			env 0x80000 \
-			env_redund 0x80000 \
-			dtb 0x40000 \
-			kernel 0x2000000 \
-			kernel_bkup 0x2000000 \
-			rootfs $EMMC_SIZE
+	else
+		if [ "$USE_AB_PARTITION" = "true"  ]; then
+			# Mender OTA enabled: use A/B partition layout
+			isp pack_image $PRESERVE_FLAGS ISPBOOOT.BIN \
+				xboot0 uboot0 \
+				xboot1 0x100000 \
+				uboot1 0x100000 \
+				uboot2 0x100000 \
+				fip 0x100000 \
+				env 0x80000 \
+				env_redund 0x80000 \
+				dtb 0x40000 \
+				kernel 0x2000000 \
+				kernel_bkup 0x2000000 \
+				data $DATA_SIZE \
+				rootfsA $ROOTFS_SIZE \
+				rootfsB $ROOTFS_SIZE
+		else
+			# Mender OTA disabled: use single rootfs partition
+			isp pack_image ISPBOOOT.BIN \
+				xboot0 uboot0 \
+				xboot1 0x100000 \
+				uboot1 0x100000 \
+				uboot2 0x100000 \
+				fip 0x100000 \
+				env 0x80000 \
+				env_redund 0x80000 \
+				dtb 0x40000 \
+				kernel 0x2000000 \
+				kernel_bkup 0x2000000 \
+				rootfs $EMMC_SIZE
+		fi
 	fi
 
 elif [ "$1" = "NAND" ]; then
@@ -166,15 +234,24 @@ rm -rf kernel_bkup
 rm -rf DTB
 rm -rf env
 rm -rf env_redund
-rm -rf rootfs
 rm -rf $OVERLAY
 rm -rf reserve
 rm -rf fip
+if [ "$USE_AB_PARTITION" = "true"  ]; then
+	if [ "$1" = "EMMC" ]; then
+		rm -rf $DATA_PARTITION
+		rm -rf rootfsA
+		rm -rf rootfsB
+	fi
+else
+	rm -rf rootfs
+fi
 
 # Create image for booting from SD card or USB storage.
 if [ "$1" = "SDCARD" ]; then
 	mkdir -p boot2linux_SDcard
 	cp -rf $U $K $N $F ./boot2linux_SDcard
+
 	dd if=$X of=boot2linux_SDcard/ISPBOOOT.BIN
 
 fi

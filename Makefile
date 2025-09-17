@@ -272,9 +272,6 @@ __config: clean
 	$(eval CROSS_COMPILE=$(shell cat $(CONFIG_ROOT) | grep 'CROSS_COMPILE=' | sed 's/CROSS_COMPILE=//g'))
 	$(eval ARCH=$(shell cat $(CONFIG_ROOT) | grep 'ARCH=' | sed 's/ARCH=//g'))
 	$(eval CHIP=$(shell cat $(CONFIG_ROOT) | grep 'CHIP=' | sed 's/CHIP=//g'))
-	#+set root filesystem mount location
-	sed -i 's|"emmc_root=root=/dev/mmcblk0p10 rw rootwait "|"emmc_root=root=/dev/mmcblk0p9 rw rootwait "|g' $(UBOOT_PATH)/include/configs/pentagram_common_ecv5546.h
-	#-set root filesystem mount location
 	@$(MAKE) -C $(XBOOT_PATH) ARCH=$(ARCH_XBOOT) CROSS=$(CROSS_COMPILE_FOR_XBOOT) $(shell cat $(CONFIG_ROOT) | grep 'XBOOT_CONFIG=' | sed 's/XBOOT_CONFIG=//g')
 	@$(MAKE_ARCH) -C $(UBOOT_PATH) clean
 	@$(MAKE_ARCH) -C $(UBOOT_PATH) CROSS_COMPILE=$(CROSS_COMPILE_FOR_LINUX) $(shell cat $(CONFIG_ROOT) | grep 'UBOOT_CONFIG=' | sed 's/UBOOT_CONFIG=//g')
