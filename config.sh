@@ -54,6 +54,8 @@ bootdev_lookup()
 		dev=romter
 	elif [ "$1" = "para_nand" ]; then
 		dev=pnand
+	elif [ "$1" = "usb" ]; then
+		dev=sdcard
 	fi
 	echo $dev
 }
@@ -288,6 +290,7 @@ list_config()
 	if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$board" = "5" -o "$board" = "6" -o "$board" = "7" -o "$board" = "8" ]; then
 		$ECHO $COLOR_YELLOW"[1] eMMC"$COLOR_ORIGIN
 		$ECHO $COLOR_YELLOW"[2] SD Card"$COLOR_ORIGIN
+		$ECHO $COLOR_YELLOW"[7] USB"$COLOR_ORIGIN
 		read sel
 		sel=${sel:-$1}
 		echo "selected boot device=$sel"

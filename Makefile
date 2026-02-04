@@ -36,6 +36,7 @@ ISP_SHELL = isp.sh
 NOR_ISP_SHELL = nor_isp.sh
 PART_SHELL = part.sh
 SDCARD_BOOT_SHELL = sdcard_boot.sh
+USB_BOOT_SHELL = usb_boot.sh
 
 Device_Board ?= 1
 Boot_Device ?= 1
@@ -431,6 +432,11 @@ isp: check tool_isp
 	@if [ "$(BOOT_FROM)" = "SDCARD" ]; then  \
 		$(ECHO) $(COLOR_YELLOW) "Generating image for SD card..." $(COLOR_ORIGIN); \
 		cd build/tools/sdcard_boot; ./$(SDCARD_BOOT_SHELL) $(SDCARD_BOOT_MODE); \
+	fi
+
+	@if [ "$(BOOT_FROM)" = "USB" ]; then  \
+		$(ECHO) $(COLOR_YELLOW) "Generating image for USB..." $(COLOR_ORIGIN); \
+		cd build/tools/usb_boot; ./$(USB_BOOT_SHELL); \
 	fi
 
 part:

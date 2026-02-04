@@ -257,7 +257,9 @@ if [ "$1" = "SDCARD" ]; then
 fi
 if [ "$1" = "USB" ]; then
 	mkdir -p boot2linux_usb
-	isp extract4boot2linux_usbboot ISPBOOOT.BIN boot2linux_usb/ISPBOOOT.BIN
+	cp -rf $U $K $D $F  ./boot2linux_usb
+	cp ISPBOOOT.BIN boot2linux_usb/ISPBOOOT.BIN
+	# isp extract4boot2linux_usbboot ISPBOOOT.BIN boot2linux_usb/ISPBOOOT.BIN
 	rm -f ISPBOOOT.BIN
 fi
 
