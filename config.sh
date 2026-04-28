@@ -1,5 +1,5 @@
 #!/bin/bash
-# $1 (board): 1=XINK V2 Board, 2=XINK Nano Board, 3=XINK Board
+# $1 (board): 1=XINK V2, 2=XINK Nano POC, 3=XINK Nano
 # $2 (boot device): 1=eMMC, 2=SD Card
 # $3 (rootfs): 1=BusyBox 1.37, 2=Ubuntu mate 20.04, 3=Ubuntu mate 22.04, 4=Ubuntu mate 24.04
 # $4 (secure mode): 1=No secure (default), 2=Enable digital signature, 3=Enable digital signature & Encryption
@@ -287,7 +287,7 @@ rootfs_content=BUSYBOX
 list_config()
 {
 	sel=1
-	if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$board" = "5" -o "$board" = "6" -o "$board" = "7" -o "$board" = "8" ]; then
+	if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$board" = "5" -o "$board" = "6" -o "$board" = "7" ]; then
 		$ECHO $COLOR_YELLOW"[1] eMMC"$COLOR_ORIGIN
 		$ECHO $COLOR_YELLOW"[2] SD Card"$COLOR_ORIGIN
 		$ECHO $COLOR_YELLOW"[7] USB"$COLOR_ORIGIN
@@ -296,7 +296,7 @@ list_config()
 		echo "selected boot device=$sel"
 	fi
 
-	if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$board" = "5" -o "$board" = "6" -o "$board" = "7" -o "$board" = "8" ]; then
+	if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$board" = "5" -o "$board" = "6" -o "$board" = "7" ]; then
 		case "$sel" in
 		"1")
 			bootdev=emmc
@@ -564,7 +564,7 @@ list_config()
 				exit 1
 			fi
 		fi
-	elif [ "$board" = "9" ]; then
+	elif [ "$board" = "10" ]; then
 		zmem=1
 		runzebu=1
 		bootdev=nor
@@ -576,15 +576,13 @@ list_config()
 }
 
 $ECHO $COLOR_GREEN"Select boards:"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[1] eCV5546 XINK V2 Board"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[2] eCV5546 XINK Nano Board"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[3] eCV5546 XINK Board"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[4] eCV5546 YX5001"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[5] eCV5546 YX5001-R1"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[6] eCV5546 YX5001-R1EM"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[7] eCV5546 YX4512 R1 8G"$COLOR_ORIGIN
-$ECHO $COLOR_YELLOW"[8] eCV5546 YX4517"$COLOR_ORIGIN
-
+$ECHO $COLOR_YELLOW"[1] XINK V2 - YX8088"$COLOR_ORIGIN
+$ECHO $COLOR_YELLOW"[2] XINK Nano POC - YX4510"$COLOR_ORIGIN
+$ECHO $COLOR_YELLOW"[3] XINK Nano - YX5001"$COLOR_ORIGIN
+$ECHO $COLOR_YELLOW"[4] XINK Nano - YX5001-EM"$COLOR_ORIGIN
+$ECHO $COLOR_YELLOW"[5] YX4512-8G "$COLOR_ORIGIN
+$ECHO $COLOR_YELLOW"[6] YX4517"$COLOR_ORIGIN
+$ECHO $COLOR_YELLOW"[7] YX6606"$COLOR_ORIGIN
 
 read board
 board=${board:-$1}
@@ -601,33 +599,29 @@ elif [ "$board" = "2" ]; then
 elif [ "$board" = "3" ]; then
 	ARCH=arm64
 	echo "CHIP=eCV5546" > $BUILD_CONFIG
-	echo "LINUX_DTB=eys3d/ecv5546-xink" >> $BUILD_CONFIG
+	echo "LINUX_DTB=eys3d/ecv5546-yx5001-r1" >> $BUILD_CONFIG
 elif [ "$board" = "4" ]; then
 	ARCH=arm64
 	echo "CHIP=eCV5546" > $BUILD_CONFIG
-	echo "LINUX_DTB=eys3d/ecv5546-yx5001" >> $BUILD_CONFIG
+	echo "LINUX_DTB=eys3d/ecv5546-yx5001-r1em" >> $BUILD_CONFIG
 elif [ "$board" = "5" ]; then
 	ARCH=arm64
 	echo "CHIP=eCV5546" > $BUILD_CONFIG
-	echo "LINUX_DTB=eys3d/ecv5546-yx5001-r1" >> $BUILD_CONFIG
+	echo "LINUX_DTB=eys3d/ecv5546-yx4512-8g" >> $BUILD_CONFIG
 elif [ "$board" = "6" ]; then
 	ARCH=arm64
 	echo "CHIP=eCV5546" > $BUILD_CONFIG
-	echo "LINUX_DTB=eys3d/ecv5546-yx5001-r1em" >> $BUILD_CONFIG
+	echo "LINUX_DTB=eys3d/ecv5546-yx4517" >> $BUILD_CONFIG
 elif [ "$board" = "7" ]; then
 	ARCH=arm64
 	echo "CHIP=eCV5546" > $BUILD_CONFIG
-	echo "LINUX_DTB=eys3d/ecv5546-yx4512-8g" >> $BUILD_CONFIG
-elif [ "$board" = "8" ]; then
-	ARCH=arm64
-	echo "CHIP=eCV5546" > $BUILD_CONFIG
-	echo "LINUX_DTB=eys3d/ecv5546-yx4517" >> $BUILD_CONFIG
+	echo "LINUX_DTB=eys3d/ecv5546-yx6606" >> $BUILD_CONFIG
 else
 	echo "Error: Unknown board!"
 	exit 1
 fi
 
-if [ "$board" != "9" ]; then
+if [ "$board" != "8" ]; then
 $ECHO $COLOR_GREEN"Select boot devices:"$COLOR_ORIGIN
 fi
 
@@ -651,7 +645,7 @@ list_config $2 $3
 
 set_config_directly=0
 
-if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$board" = "5" -o "$board" = "6" -o "$board" = "7" -o "$board" = "8" -o "$board" = "9" ]; then
+if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$board" = "5" -o "$board" = "6" -o "$board" = "7" ]; then
 	## board = eCV5546
 	$ECHO $COLOR_GREEN"Select secure modes:"$COLOR_ORIGIN
 	$ECHO $COLOR_YELLOW"[1] No secure (default)"$COLOR_ORIGIN
@@ -678,17 +672,15 @@ if [ "$board" = "1" -o "$board" = "2" -o "$board" = "3" -o "$board" = "4" -o "$b
 	elif [ "$board" = "2" ]; then
 		sel_board=xink_nano
 	elif [ "$board" = "3" ]; then
-		sel_board=xink
-	elif [ "$board" = "4" ]; then
-		sel_board=yx5001
-	elif [ "$board" = "5" ]; then
 		sel_board=yx5001_r1
-	elif [ "$board" = "6" ]; then
+	elif [ "$board" = "4" ]; then
 		sel_board=yx5001_r1em
-	elif [ "$board" = "7" ]; then
+	elif [ "$board" = "5" ]; then
 		sel_board=yx4512_8g
-	elif [ "$board" = "8" ]; then
+	elif [ "$board" = "6" ]; then
 		sel_board=yx4517
+	elif [ "$board" = "7" ]; then
+		sel_board=yx6606
 	fi
 fi
 
